@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maze Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: url('maze_background.jpg') no-repeat center center fixed;
+            background-size: cover;
+            color: #fff;
+            text-align: center;
+        }
+        canvas {
+            border: 2px solid white;
+            margin: 20px auto;
+            display: block;
+        }
+        #menu, #settings {
+            background: url('maze_background.jpg') no-repeat center center fixed;
+            padding: 20px;
+            border-radius: 10px;
+            display: inline-block;
+        }
+        button {
+            background-color: #444;
+            color: #fff;
+            padding: 10px 20px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>Maze Game</h1>
+    <div>
+        <button onclick="startAiOnlyMode()">AI Only Mode</button>
+        <button onclick="startPlayerVsAiMode()">Player vs AI Mode</button>
+    </div>
+    <div>
+        <label for="difficulty">Settings:</label>
+        <select id="difficulty">
+            <option value="15">Beginner</option>
+            <option value="20">Experienced</option>
+            <option value="25">Advanced</option>
+            <option value="30">Expert</option>
+            <option value="40">Ultimate</option>
+        </select>
+
+        <label for="wallColor">Wall Color:</label>
+        <input type="color" id="wallColor" value="#000000">
+    </div>
+    <canvas id="mazeCanvas" width="600" height="600"></canvas>
+    <script>
+        const canvas = document.getElementById("mazeCanvas");
+        const ctx = canvas.getContext("2d");
+        const difficultySelect = document.getElementById("difficulty");
+        const wallColorPicker = document.getElementById("wallColor");
+
+        let cellSize = 20;
+        let rows = 25;
+        let cols = 25;
+        let wallColor = "#000";
+        let maze, start, end;
+
+        function applySettings() {
+            const selectedSize = parseInt(difficultySelect.value);
+            rows = cols = selectedSize;
+            wallColor = wallColorPicker.value;
+            cellSize = Math.floor(600 / rows);
+            canvas.width = cellSize * cols;
+            canvas.height = cellSize * rows;
+        }
+
+        function generateMaze() {
+            applySettings();
+            const grid = Array(rows).fill().map(() => Array(cols).fill(1));
+            function dfs(x, y) {
+                const directions = [[0, 2], [0, -2], [2, 0], [-2, 0]];
+                directions.sort(() => Math.random() - 0.5);
+                for (const [dx, dy] of directions) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx > 0 && nx < rows - 1 && ny > 0 && ny < cols - 1 && grid[nx][ny] === 1) {
+                        grid[nx][ny] = 0;
+                        grid[x + dx / 2][y + dy / 2] = 0;
+                        dfs(nx, ny);
+                    }
+                }
+            }
+            const startX = Math.floor(Math.random() * (rows / 2)) * 2 + 1;
+            const startY = Math.floor(Math.random() * (cols / 2)) * 2 + 1;
+            grid[startX][startY] = 0;
+            dfs(startX, startY);
+            const path = [];
+            for (let r = 1; r < rows; r += 2) {
+                for (let c = 1; c < cols; c += 2) {
+                    if (grid[r][c] === 0) path.push([r, c]);
+                }
+            }
+            start = path[Math.floor(Math.random() * path.length)];
+            end = path[Math.floor(Math.random() * path.length)];
+
+            if (rows === 20){
+                validateMaze(grid)
+            }
+
+            return grid;
+        }
+
+        async function validateMaze(grid){
+            const gridstring = grid_to_string(grid);
+
+            try {
+                const response = await fetch('http://localhost:5000/validate-maze',{
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({'maze': gridstring})
+                });
+
+                const data = await response.json()
+                console.log(data)
+                console.log(data.prediction)
+                displayPrediction(data.prediction)
+
+            } catch (error) {
+                console.error('Error validating maze:', error);
+            }
+        }
+
+        function grid_to_string(grid){
+            return grid.flat().join(',');
+        }
+
+        function displayPrediction(prediciton){
+            const existingDiv = document.getElementById('prediction-result');
+
+            if(existingDiv){
+                existingDiv.remove();
+            }
+            const div = document.createElement('div');
+            div.id = 'prediction-result';
+            div.textContent = prediciton === 1 ? "Neural Network predicted: Valid Maze" : "Neural Network predicted: Not Valid Maze";
+            div.style.color = prediciton === 1 ? 'green' : 'red';
+            div.style.fontWeight = 'bold';
+            div.style.marginTop = '20px';
+            document.body.appendChild(div);
+        }
+
+        function drawMaze(maze, highlightPath = []) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < maze.length; i++) {
+                for (let j = 0; j < maze[0].length; j++) {
+                    ctx.fillStyle = maze[i][j] === 1 ? wallColor : "#fff";
+                    ctx.fillRect(j * cellSize, i * cellSize, cellSize, cellSize);
+                }
+            }
+            if (highlightPath.length) {
+                for (const [x, y] of highlightPath) {
+                    ctx.fillStyle = "lime";
+                    ctx.fillRect(y * cellSize, x * cellSize, cellSize, cellSize);
+                }
+            }
+            ctx.fillStyle = "green";
+            ctx.fillRect(start[1] * cellSize, start[0] * cellSize, cellSize, cellSize);
+            ctx.fillStyle = "red";
+            ctx.fillRect(end[1] * cellSize, end[0] * cellSize, cellSize, cellSize);
+        }
+
+        function bfs(maze, start, end) {
+            const queue = [[start, [start]]];
+            const visited = new Set([start.toString()]);
+            while (queue.length) {
+                const [[x, y], path] = queue.shift();
+                if (x === end[0] && y === end[1]) return path;
+                for (const [dx, dy] of [[0,1],[1,0],[0,-1],[-1,0]]) {
+                    const nx = x + dx, ny = y + dy;
+                    if (nx >= 0 && ny >= 0 && nx < rows && ny < cols &&
+                        maze[nx][ny] === 0 && !visited.has([nx, ny].toString())) {
+                        visited.add([nx, ny].toString());
+                        queue.push([[nx, ny], path.concat([[nx, ny]])]);
+                    }
+                }
+            }
+            return [];
+        }
+
+        async function startAiOnlyMode() {
+            const existingDiv2 = document.getElementById('player_ai_stats');
+
+            if(existingDiv2){
+                existingDiv2.remove();
+            }
+            const startTime = performance.now(); 
+
+            maze = generateMaze();
+            drawMaze(maze);
+            const path = bfs(maze, start, end);
+            for (let i = 0; i < path.length; i++) {
+                drawMaze(maze, path.slice(0, i + 1));
+                await new Promise(r => setTimeout(r, 100));
+            }
+
+            const endTime = performance.now();
+            const duration = ((endTime - startTime) / 1000).toFixed(2);
+            
+            const existingDiv = document.getElementById('ai-stats');
+
+            if(existingDiv){
+                existingDiv.remove();
+            }
+            
+            const resultDiv = document.createElement('div');
+            resultDiv.id = 'ai-stats'
+            resultDiv.style.position = 'absolute';
+            resultDiv.style.top = '10px';
+            resultDiv.style.right = '10px';
+            resultDiv.style.padding = '10px';
+            resultDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+            resultDiv.style.color = 'white';
+            resultDiv.style.fontFamily = 'sans-serif';
+            resultDiv.style.borderRadius = '8px';
+
+            resultDiv.innerHTML = `
+                <strong>Path Length:</strong> ${path.length}<br>
+                <strong>Time Taken:</strong> ${duration} s
+            `;
+
+            document.body.appendChild(resultDiv)
+        }
+
+        let global_player_time
+        let player_steps 
+        async function startPlayerVsAiMode() {
+
+            const existingDiv2 = document.getElementById('ai-stats');
+
+            if(existingDiv2){
+                existingDiv2.remove();
+            }
+
+            global_player_time = 0;
+            player_steps = 0;
+            maze = generateMaze();
+            drawMaze(maze);
+            alert("Player vs AI mode: Use arrow keys to move. Try to reach the red goal before AI!");
+            let player = [...start];
+            const path = bfs(maze, start, end);
+            let aiStep = 0;
+
+            const player_startTime = performance.now();
+
+            async function gameLoop() {
+                drawMaze(maze);
+                ctx.fillStyle = "blue";
+                ctx.fillRect(player[1] * cellSize, player[0] * cellSize, cellSize, cellSize);
+                
+                if (player[0] === end[0] && player[1] === end[1]) {
+                    const player_endTime = performance.now();
+                    const player_duration = ((player_endTime - player_startTime) / 1000).toFixed(2);
+                    global_player_time = player_duration
+                    runAi()
+                    return
+                }
+                requestAnimationFrame(gameLoop);
+            }
+            document.onkeydown = e => {
+                player_steps = player_steps + 1;
+                const moves = {
+                    ArrowUp: [-1, 0], ArrowDown: [1, 0],
+                    ArrowLeft: [0, -1], ArrowRight: [0, 1]
+                };
+                if (moves[e.key]) {
+                    const [dx, dy] = moves[e.key];
+                    const [nx, ny] = [player[0] + dx, player[1] + dy];
+                    if (maze[nx] && maze[nx][ny] === 0) player = [nx, ny];
+                }
+            };
+            requestAnimationFrame(gameLoop);
+
+
+            async function runAi() {
+                const ai_startTime = performance.now();
+                for (let i = 0; i < path.length; i++) {
+                    drawMaze(maze, path.slice(0, i + 1));
+                    await new Promise(r => setTimeout(r, 100));
+                }
+                const ai_endTime = performance.now();
+                const aiTime = (ai_endTime - ai_startTime) / 1000;
+                const aisteps = path.length + Math.floor(Math.random() * 3) + 1;
+                showResult(global_player_time, aiTime,aisteps,player_steps);
+            }
+
+            function showResult(global_player_time, aiTime, aiSteps, player_steps) {
+                const existingDiv = document.getElementById('player_ai_stats');
+
+                if(existingDiv){
+                    existingDiv.remove();
+                }
+                
+                const winner_time = global_player_time < aiTime ? "Player" : (aiTime < global_player_time ? "AI" : "It's a draw!");
+                const winner_steps = player_steps < aiSteps ? "Player" : (aiSteps < player_steps ? "AI" : "It's a draw!");
+                const resultDiv = document.createElement('div');
+                resultDiv.id = 'player_ai_stats'
+                resultDiv.style.position = 'absolute';
+                resultDiv.style.top = '10px';
+                resultDiv.style.left = '10px';
+                resultDiv.style.padding = '10px';
+                resultDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+                resultDiv.style.color = 'white';
+                resultDiv.style.fontFamily = 'sans-serif';
+                resultDiv.style.borderRadius = '8px';
+                resultDiv.innerHTML = `
+                    <strong>Player Time:</strong> ${global_player_time} s<br>
+                    <strong>AI Time:</strong> ${aiTime.toFixed(2)} s<br>
+                    <strong>Player Steps:</strong> ${player_steps} steps<br>
+                    <strong>AI Steps:</strong> ${aiSteps} steps<br>
+                    <strong>Winner in steps:</strong> ${winner_steps}<br>
+                    <strong>Winner in time:</strong> ${winner_time}
+                `;
+                document.body.appendChild(resultDiv);
+            }
+            
+        }
+    </script>
+</body>
+</html>
+
